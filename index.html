@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Gempa Jepang</title>
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+let map;
+let markers = [];
+let allData = [];
+
+function initializeMap() {
+  map = L.map('map').setView([36.2048, 138.2529], 5); // Fokus Jepang
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+  }).addTo(map);
+}
+
+function plotData(data, selectedYear = 'all') {
+  // Hapus marker lama
+  markers.forEach(marker => map.removeLayer(marker));
+  markers = [];
+
+  data.forEach(quake => {
+    const date = new Date(quake.time);
+    const year = date.getFullYear();
+
+    if (selectedYear === 'all' || selectedYear == year) {
+      const circle = L.circleMarker([quake.latitude, quake.longitude], {
+        radius: quake.mag * 2, // Ukuran bubble = magnitude * 2
+        fillColor: "#ff7800",
+        color: "#000",
+        weight: 1,
+        opacity: 1,
+        fillOpacity: 0.8
+      }).addTo(map)
+      .bindPopup(`<b>${quake.place}</b><br>Magnitude: ${quake.mag}<br>Depth: ${quake.depth} km<br>Tahun: ${year}`);
+
+      markers.push(circle);
+    }
+  });
+}
+
+function populateYearDropdown(data) {
+  const yearSet = new Set();
+  data.forEach(quake => {
+    const date = new Date(quake.time);
+    yearSet.add(date.getFullYear());
+  });
+
+  const yearList = Array.from(yearSet).sort();
+  const yearFilter = document.getElementById('yearFilter');
+
+  yearList.forEach(year => {
+    const option = document.createElement('option');
+    option.value = year;
+    option.textContent = year;
+    yearFilter.appendChild(option);
+  });
+}
+
+function filterByYear() {
+  const selectedYear = document.getElementById('yearFilter').value;
+  plotData(allData, selectedYear);
+}
+
+fetch('http://localhost:8000/earthquake-data')
+  .then(response => response.json())
+  .then(data => {
+    console.log('Data Loaded:', data);
+    allData = data;
+    initializeMap();
+    populateYearDropdown(data);
+    plotData(data);
+
+    // Update info box
+    document.getElementById('jumlahGempa').innerText = data.length;
+
+    const avgMagnitude = (data.reduce((sum, quake) => sum + quake.mag, 0) / data.length).toFixed(2);
+    document.getElementById('avgMag').innerText = avgMagnitude;
+
+    const maxMagnitude = Math.max(...data.map(quake => quake.mag)).toFixed(2);
+    document.getElementById('maxMag').innerText = maxMagnitude;
+
+    // ========== Buat Grafik Jumlah Gempa per Tahun ==========
+    const gempaPerTahun = {}; // Object untuk count per tahun
+
+    data.forEach(quake => {
+      const date = new Date(quake.time);
+      const year = date.getFullYear();
+      if (gempaPerTahun[year]) {
+        gempaPerTahun[year]++;
+      } else {
+        gempaPerTahun[year] = 1;
+      }
+    });
+
+    const tahunList = Object.keys(gempaPerTahun).sort();
+    const jumlahGempaList = tahunList.map(year => gempaPerTahun[year]);
+
+    var options = {
+      chart: {
+        type: 'bar',
+        height: 350
+      },
+      series: [{
+        name: 'Jumlah Gempa',
+        data: jumlahGempaList
+      }],
+      xaxis: {
+        categories: tahunList
+      }
+    };
+
+    var chart = new ApexCharts(document.querySelector("#chartGempa"), options);
+    chart.render();
+  })
+  .catch(error => console.error('Error fetching earthquake data:', error));
+</script>
+<body>
+<div class="container mt-4">
+  <h1 class="mb-4">Dashboard Gempa Jepang</h1>
+
+  <div class="row mb-4">
+    <div class="col-md-4">
+      <div class="card text-white bg-primary mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Jumlah Gempa</h5>
+          <p class="card-text fs-2" id="jumlahGempa">0</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-white bg-success mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Magnitudo Rata-rata</h5>
+          <p class="card-text fs-2" id="avgMag">0.0</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-white bg-danger mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Magnitudo Tertinggi</h5>
+          <p class="card-text fs-2" id="maxMag">0.0</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-12">
+      <div id="chartGempa"></div>
+    </div>
+  </div>
+
+  <select id="yearFilter" onchange="filterByYear()">
+    <option value="all">Semua Tahun</option>
+  </select>
+
+
+  <div id="map" style="height: 500px;"></div>
+
+  <div class="card p-4 my-4">
+    <h3>Prediksi Magnitudo Gempa</h3>
+    <form id="predictForm">
+      <div class="form-group">
+        <label>Latitude:</label>
+        <input type="number" step="any" id="latitude" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label>Longitude:</label>
+        <input type="number" step="any" id="longitude" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label>Depth (km):</label>
+        <input type="number" step="any" id="depth" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label>Jumlah Sensor (nst):</label>
+        <input type="number" step="any" id="nst" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label>Gap:</label>
+        <input type="number" step="any" id="gap" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label>RMS:</label>
+        <input type="number" step="any" id="rms" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label>Depth Error:</label>
+        <input type="number" step="any" id="depthError" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label>Magnitude Sensor (magNst):</label>
+        <input type="number" step="any" id="magNst" class="form-control" required>
+      </div>
+      <div class="form-group">
+        <label>Distance from Tokyo (km):</label>
+        <input type="number" step="any" id="distance_from_tokyo_km" class="form-control" required>
+      </div>
+  
+      <div class="form-group">
+        <label>Pilih Tipe Magnitudo:</label>
+        <select id="magType" class="form-control" required>
+          <option value="m">m</option>
+          <option value="mb">mb</option>
+          <option value="ms">ms</option>
+          <option value="mwb">mwb</option>
+          <option value="mwc">mwc</option>
+          <option value="mwr">mwr</option>
+          <option value="mww">mww</option>
+        </select>
+      </div>
+  
+      <button type="submit" class="btn btn-primary mt-3">Prediksi Magnitudo</button>
+    </form>
+  
+    <div class="mt-4">
+      <h4>Hasil Prediksi:</h4>
+      <p id="hasilPrediksi">Belum ada prediksi</p>
+    </div>
+  </div>
+  
+</div>
+
+<script>
+  document.getElementById('predictForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+  
+    const magTypes = ['m', 'mb', 'ms', 'mwb', 'mwc', 'mwr', 'mww'];
+    const selectedMagType = document.getElementById('magType').value;
+  
+    const inputData = {
+      latitude: parseFloat(document.getElementById('latitude').value),
+      longitude: parseFloat(document.getElementById('longitude').value),
+      depth: parseFloat(document.getElementById('depth').value),
+      nst: parseFloat(document.getElementById('nst').value),
+      gap: parseFloat(document.getElementById('gap').value),
+      rms: parseFloat(document.getElementById('rms').value),
+      depthError: parseFloat(document.getElementById('depthError').value),
+      magNst: parseFloat(document.getElementById('magNst').value),
+      distance_from_tokyo_km: parseFloat(document.getElementById('distance_from_tokyo_km').value),
+      magType_m: selectedMagType === 'm',
+      magType_mb: selectedMagType === 'mb',
+      magType_ms: selectedMagType === 'ms',
+      magType_mwb: selectedMagType === 'mwb',
+      magType_mwc: selectedMagType === 'mwc',
+      magType_mwr: selectedMagType === 'mwr',
+      magType_mww: selectedMagType === 'mww'
+    };
+  
+    fetch('http://localhost:8000/predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(inputData)
+    })
+    .then(response => response.json())
+    .then(result => {
+      document.getElementById('hasilPrediksi').innerText = `Prediksi Magnitudo: ${result.predicted_magnitude.toFixed(2)}`;
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      document.getElementById('hasilPrediksi').innerText = 'Terjadi error saat prediksi.';
+    });
+  });
+  </script>
+
+</body>
+</html>
